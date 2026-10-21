@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Activity Chain Generator — live in-browser demo (WebGPU)</title>
+<meta name="description" content="Generate 24-hour activity chains live in your browser. A 1.5B language model distilled from large-model reasoning over real travel surveys runs entirely on your GPU via WebLLM — no server, nothing uploaded.">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,"Segoe UI","Helvetica Neue",sans-serif;
+         max-width:960px; margin:0 auto; padding:40px 24px;
+         color:#222; background:#fafafa; line-height:1.6; }
+  .parent-link { display:inline-block; font-size:12px; color:#888; text-decoration:none;
+                 letter-spacing:.3px; margin-bottom:8px; }
+  .parent-link:hover { color:#1f77b4; }
+  h1 { font-size:32px; margin:0 0 8px; letter-spacing:-0.5px; }
+  .tagline { color:#666; font-size:16px; margin-bottom:20px; }
+  .note { background:#fff8e6; border:1px solid #e8d9a0; border-radius:8px;
+          padding:10px 14px; font-size:13px; color:#665c33; margin-bottom:24px; }
+  .warn { background:#fdecea; border:1px solid #e6a39d; border-radius:8px;
+          padding:10px 14px; font-size:13px; color:#7a2e28; margin-bottom:24px; }
+  .tabs { display:flex; gap:8px; margin-bottom:16px; }
+  .tab { padding:8px 18px; border:1px solid #ccc; border-radius:6px; background:#fff;
+         font-size:14px; font-weight:600; cursor:pointer; }
+  .tab.active { background:#1f77b4; border-color:#1f77b4; color:#fff; }
+  .controls { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end;
+              background:#fff; border:1px solid #e5e5e5; border-radius:8px;
+              padding:14px 16px; margin-bottom:12px; }
+  .ctrl label { display:block; font-size:11px; color:#888; text-transform:uppercase;
+                letter-spacing:.5px; margin-bottom:3px; }
+  .ctrl select { font-size:14px; padding:6px 8px; border:1px solid #ccc;
+                 border-radius:5px; background:#fff; max-width:240px; }
+  button.act { padding:8px 14px; border:1px solid #1f77b4; border-radius:6px;
+               background:#1f77b4; color:#fff; font-size:13px; font-weight:600;
+               cursor:pointer; }
+  button.act.ghost { background:#fff; color:#1f77b4; }
+  button.act.stop { background:#C0392B; border-color:#C0392B; }
+  button.act:disabled { opacity:.45; cursor:default; }
+  .loadbar { background:#fff; border:1px solid #e5e5e5; border-radius:8px;
+             padding:12px 16px; margin-bottom:20px; font-size:13px; color:#555; }
+  .loadbar .bar { height:8px; background:#eee; border-radius:4px; overflow:hidden;
+                  margin-top:8px; }
+  .loadbar .fill { height:100%; width:0%; background:#1f77b4; transition:width .3s; }
+  .box { border:2px solid; border-radius:8px; padding:12px 16px; margin-bottom:12px;
+         font-size:14px; }
+  .box .hd { font-size:11px; font-weight:700; text-transform:uppercase;
+             letter-spacing:.6px; margin-bottom:4px; }
+  .box.persona  { background:#D8EFDC; border-color:#2E8B57; }
+  .box.reason   { background:#D8EFDC; border-color:#2E8B57; }
+  .box.input    { background:#D7E3FC; border-color:#4C78A8; }
+  .box.raw      { background:#f4f4f4; border-color:#bbb; }
+  .box.raw pre  { white-space:pre-wrap; word-break:break-word; margin:0;
+                  font-size:12px; max-height:260px; overflow-y:auto; }
+  .tl-wrap { background:#fff; border:1px solid #e5e5e5; border-radius:8px;
+             padding:16px; margin-bottom:12px; }
+  .tl { position:relative; height:46px; border-radius:5px; overflow:hidden;
+        background:#eee; }
+  .tl .seg { position:absolute; top:0; height:100%; }
+  .tl .seg:hover { filter:brightness(1.12); }
+  .tl-axis { position:relative; height:18px; font-size:10px; color:#999; }
+  .tl-axis span { position:absolute; transform:translateX(-50%); }
+  .legend { display:flex; flex-wrap:wrap; gap:12px; font-size:12px; color:#555;
+            margin-top:10px; }
+  .legend .sw { display:inline-block; width:11px; height:11px; border-radius:3px;
+                margin-right:4px; vertical-align:-1px; }
+  table.acts { width:100%; border-collapse:collapse; font-size:13px;
+               background:#fff; border:1px solid #e5e5e5; border-radius:8px; }
+  table.acts th, table.acts td { padding:6px 10px; text-align:left;
+               border-bottom:1px solid #eee; }
+  table.acts th { font-size:11px; color:#888; text-transform:uppercase;
+                  letter-spacing:.5px; }
+  #tooltip { position:fixed; display:none; background:#222; color:#fff;
+             font-size:12px; padding:6px 10px; border-radius:5px; z-index:10;
+             pointer-events:none; max-width:280px; }
+  details summary { cursor:pointer; font-size:12px; color:#888; margin-bottom:6px; }
+  h2 { font-size:20px; margin:40px 0 12px; }
+  .about p { font-size:14px; color:#444; }
+  footer { margin-top:40px; font-size:12px; color:#999;
+           border-top:1px solid #e5e5e5; padding-top:14px; }
+  a { color:#1f77b4; }
+</style>
+</head>
+<body>
+<a class="parent-link" href="./">&larr; back to the gallery</a>
+<h1>Activity Chain Generator — live</h1>
+<p class="tagline">The same 1.5B distilled student as the
+<a href="./">gallery</a>, running <b>entirely in your browser</b> on your GPU
+(<a href="https://github.com/mlc-ai/web-llm">WebLLM</a>, WebGPU, 4-bit). Pick demographics,
+generate a fresh <b>persona</b>, <b>reasoning trace</b>, and <b>24-hour activity chain</b> —
+no server, nothing you do here leaves your machine.</p>
+
+<div class="note" id="live-note-trc" style="background:#e8f1fb;border-color:#9dc1e4;color:#2a527a"><b>June 2026 build.</b> This page runs the earlier Qwen2.5-1.5B students for Minneapolis-St. Paul and Seoul in the browser via WebGPU, while <a href="./">the gallery</a> shows the Qwen3.5-2B students for all 4 regions. The 2B students are not yet compiled for the browser.</div>
+
+<div class="note"><b>What to expect.</b> The first load downloads ~1&nbsp;GB of model weights
+(cached by your browser afterwards). Outputs stream token by token and are shown unedited; a
+small model occasionally produces a schema-invalid day, which we flag instead of hiding.
+Requires WebGPU — Chrome or Edge 113+ on desktop (Safari 18+ and Firefox Nightly may work).</div>
+<div class="warn" id="gpuwarn" style="display:none"><b>WebGPU not available in this browser.</b>
+You can still browse the <a href="./">precomputed gallery</a>, which needs no GPU.</div>
+
+<div class="tabs" id="tabs"></div>
+<div class="controls" id="controls"></div>
+<div class="loadbar" id="loadbar" style="display:none">
+  <span id="loadtxt"></span>
+  <div class="bar"><div class="fill" id="loadfill"></div></div>
+</div>
+
+<div id="result" style="display:none">
+  <div class="box input"><div class="hd">Input — demographics (the model sees only this)</div>
+    <div id="demoLine"></div></div>
+  <div class="box persona" id="personaBox" style="display:none">
+    <div class="hd">Generated persona (latent, inferred by the model)</div>
+    <div id="personaTxt"></div></div>
+  <div class="box reason" id="reasonBox" style="display:none">
+    <div class="hd">Generated reasoning (chain-of-thought)</div>
+    <div id="reasonTxt"></div></div>
+  <div class="tl-wrap" id="chainWrap" style="display:none">
+    <div class="hd" style="font-size:11px;font-weight:700;color:#C0392B;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">
+      Generated 24-hour activity chain (day runs 03:00 &rarr; 03:00)</div>
+    <div class="tl" id="timeline"></div>
+    <div class="tl-axis" id="tlaxis"></div>
+    <div class="legend" id="legend"></div>
+  </div>
+  <table class="acts" id="actTable" style="display:none"><thead><tr>
+    <th>Clock</th><th>Activity</th><th>Place</th><th>Duration</th><th>Arrives by</th>
+  </tr></thead><tbody id="actRows"></tbody></table>
+  <div class="warn" id="invalidWarn" style="display:none"><b>Schema-invalid generation.</b>
+    This sample did not parse into a valid home-anchored day — that happens occasionally with a
+    1.5B model. The raw output is below; hit Generate to try again.</div>
+  <div class="box raw"><details id="rawDetails"><summary>raw model output (streams live)</summary>
+    <pre id="rawTxt"></pre></details></div>
+</div>
+<div id="tooltip"></div>
+
+<h2>How this differs from the gallery</h2>
+<div class="about">
+<p>The gallery shows precomputed generations from our lab GPU. This page runs the identical
+student model (Qwen2.5-1.5B + merged LoRA, one per city) in your browser, quantized to 4-bit
+(q4f16_1) and decoded at the same temperature 0.8 / top-p 0.92 used throughout the paper. The
+demographic vocabulary matches the training surveys, and the prompt sent to the model is exactly
+the training-time format — what you see is the deployment artifact, not a hosted API.</p>
+<p>Model weights are published at
+<a href="https://huggingface.co/UMN-Choi-Lab">huggingface.co/UMN-Choi-Lab</a> (CC-BY-NC-4.0,
+research use). Survey microdata is never published; profiles you compose here are synthetic by
+construction.</p>
+</div>
+
+<footer>UMN Choi Lab &middot; Seongjin Choi &middot; surveys: Met Council TBI 2023, KTDB HTS 2021
+(microdata never published) &middot; outputs are synthetic and for research illustration only.</footer>
+
+<script type="module">
+import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.79";
+
+const CITY_LABEL = { mn: "Minneapolis–St. Paul", seoul: "Seoul" };
+const HF = {
+  mn:    "https://huggingface.co/UMN-Choi-Lab/PersonaTC-mn-Qwen2.5-1.5B-q4f16_1-MLC",
+  seoul: "https://huggingface.co/UMN-Choi-Lab/PersonaTC-seoul-Qwen2.5-1.5B-q4f16_1-MLC",
+};
+const SYS = {
+  mn: "You are an expert in Twin Cities (Minnesota) daily mobility patterns. Generate a realistic 24-hour trip chain (starting 03:00, ending 03:00 the next day) in JSON for the given person. The first and last activity must be home; each activity has activity_type, location_type, zone (a PUMA-level zone code), start_time_min (minutes from 03:00), duration_min (>= 5), and mode.\n\nFirst infer the person's persona and reasoning, then output the JSON trip chain. Wrap the inferred persona in <persona>...</persona>, the reasoning in <reasoning>...</reasoning>, then emit the JSON result.\n먼저 페르소나와 추론 과정을 서술한 뒤 JSON 결과를 출력하십시오.",
+  seoul: "You are an expert in Seoul (서울) daily mobility patterns. Generate a realistic 24-hour trip chain (starting 03:00, ending 03:00 the next day) in JSON for the given person. The first and last activity must be home; each activity has activity_type, location_type, district (Seoul 25-gu), start_time_min (minutes from 03:00), duration_min (>= 5), and mode.\n주어진 사람에 대해 현실적인 24시간 통행 체인을 JSON으로 생성하십시오.\n\nFirst infer the person's persona and reasoning, then output the JSON trip chain. Wrap the inferred persona in <persona>...</persona>, the reasoning in <reasoning>...</reasoning>, then emit the JSON result.\n먼저 페르소나와 추론 과정을 서술한 뒤 JSON 결과를 출력하십시오.",
+};
+const PLACE_KEY = { mn: "zone", seoul: "district" };
+const GROUPS = [
+  ["home",   "#5B8DB8", t => t.includes("home")],
+  ["work",   "#C0392B", t => t.includes("work")],
+  ["school", "#E6A23C", t => t.includes("school") || t.includes("academy") || t.includes("education")],
+  ["travel", "#9aa0a6", () => false],
+  ["others", "#2E8B57", () => true],
+];
+const groupOf = t => { const s = (t||"").toLowerCase();
+  for (const [g,,f] of GROUPS) if (f(s)) return g; return "others"; };
+const colorOf = g => GROUPS.find(x => x[0] === g)[1];
+const fieldLabel = f => f.replace(/\s*\(.*\)$/, "").replace(/^./, c => c.toUpperCase());
+const clock = m => { const c = (180 + ((m % 1440) + 1440)) % 1440;
+  return String(Math.floor(c/60)).padStart(2,"0") + ":" + String(c%60).padStart(2,"0"); };
+const $ = id => document.getElementById(id);
+
+let DATA = {}, city = "mn", sel = {};
+let engine = null, engineCity = null, busy = false;
+
+// ---- parser: JS port of scripts/61_build_demo_assets.py (same validation) ----
+function extractChain(text) {
+  let start = text.indexOf('{"activities"');
+  if (start < 0) start = text.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === "{") depth++;
+    else if (text[i] === "}") {
+      depth--;
+      if (depth === 0) {
+        try { return JSON.parse(text.slice(start, i + 1)); } catch { return null; }
+      }
+    }
+  }
+  return null;
+}
+function validActivities(chain, placeKey) {
+  if (!chain || typeof chain !== "object") return null;
+  const acts = chain.activities;
+  if (!Array.isArray(acts) || acts.length < 2) return null;
+  const out = [];
+  for (const a of acts) {
+    if (!a || typeof a !== "object") return null;
+    const start = Number(a.start_time_min), dur = Number(a.duration_min);
+    if (!Number.isInteger(start) || !Number.isInteger(dur)) return null;
+    const typ = String(a.activity_type ?? "").trim();
+    if (!typ || dur < 5 || start < 0 || start >= 1440) return null;
+    out.push({ type: typ, place: String(a[placeKey] ?? "").trim(),
+               start_min: start, dur_min: dur, mode: String(a.mode ?? "").trim() });
+  }
+  if (!out[0].type.includes("home") || !out[out.length - 1].type.includes("home")) return null;
+  for (let i = 0; i + 1 < out.length; i++)
+    if (out[i + 1].start_min < out[i].start_min) return null;
+  return out;
+}
+function parseGen(text, placeKey) {
+  const m = /<persona>\s*([\s\S]*?)\s*<\/persona>[\s\S]*?<reasoning>\s*([\s\S]*?)\s*<\/reasoning>/.exec(text);
+  const acts = validActivities(extractChain(text), placeKey);
+  if (!m || !acts) return null;
+  return { persona: m[1].trim(), reasoning: m[2].trim(), activities: acts };
+}
+
+// ---- UI ----
+async function boot() {
+  if (!navigator.gpu) $("gpuwarn").style.display = "block";
+  for (const c of ["mn", "seoul"]) {
+    try { DATA[c] = await (await fetch(`data/web_demo_${c}.json`)).json(); }
+    catch (e) { DATA[c] = null; }
+  }
+  renderTabs(); pickCity("mn");
+}
+function renderTabs() {
+  const el = $("tabs"); el.innerHTML = "";
+  for (const c of ["mn", "seoul"]) {
+    if (!DATA[c]) continue;
+    const b = document.createElement("div");
+    b.className = "tab" + (c === city ? " active" : "");
+    b.textContent = CITY_LABEL[c];
+    b.onclick = () => { if (!busy) pickCity(c); };
+    el.appendChild(b);
+  }
+}
+function pickCity(c) { city = c; sel = {}; renderTabs(); renderControls(); }
+function renderControls() {
+  const d = DATA[city], el = $("controls"); el.innerHTML = "";
+  if (!d) return;
+  for (const f of d.fields) {
+    const opts = d.options[f];
+    if (!sel[f] || !opts.includes(sel[f])) sel[f] = opts[0];
+    const w = document.createElement("div"); w.className = "ctrl";
+    const lab = document.createElement("label"); lab.textContent = fieldLabel(f);
+    const s = document.createElement("select");
+    for (const o of opts) { const op = document.createElement("option");
+      op.value = op.textContent = o; if (o === sel[f]) op.selected = true; s.appendChild(op); }
+    s.onchange = () => { sel[f] = s.value; };
+    w.appendChild(lab); w.appendChild(s); el.appendChild(w);
+  }
+  const r = document.createElement("button"); r.className = "act ghost";
+  r.textContent = "🎲 Surprise me";
+  r.onclick = () => { const d2 = DATA[city];
+    for (const f of d2.fields) { const o = d2.options[f];
+      sel[f] = o[Math.floor(Math.random() * o.length)]; }
+    renderControls(); };
+  el.appendChild(r);
+  const g = document.createElement("button"); g.className = "act"; g.id = "genBtn";
+  g.textContent = engineCity === city ? "Generate" : "Load model (~1 GB) & generate";
+  g.disabled = !navigator.gpu || busy;
+  g.onclick = generate;
+  el.appendChild(g);
+  const st = document.createElement("button"); st.className = "act stop"; st.id = "stopBtn";
+  st.textContent = "Stop"; st.style.display = busy ? "" : "none";
+  st.onclick = () => { if (engine) engine.interruptGenerate(); };
+  el.appendChild(st);
+}
+async function ensureEngine() {
+  if (engine && engineCity === city) return;
+  const ref = webllm.prebuiltAppConfig.model_list.find(
+    m => m.model_id === "Qwen2.5-1.5B-Instruct-q4f16_1-MLC");
+  if (!ref) throw new Error("WebLLM prebuilt Qwen2.5-1.5B entry not found");
+  const model_id = `personatc-${city}-1.5b-q4f16_1`;
+  const appConfig = { model_list: [{ ...ref, model: HF[city] + "/resolve/main/", model_id }] };
+  $("loadbar").style.display = "block";
+  const cb = r => { $("loadtxt").textContent = r.text;
+    $("loadfill").style.width = Math.round(100 * (r.progress || 0)) + "%"; };
+  if (engine) { await engine.unload(); engine = null; engineCity = null; }
+  engine = await webllm.CreateMLCEngine(model_id, { appConfig, initProgressCallback: cb });
+  engineCity = city;
+  $("loadtxt").textContent = "Model ready (cached for next time).";
+  $("loadfill").style.width = "100%";
+}
+async function generate() {
+  if (busy) return;
+  busy = true; renderControls();
+  const d = DATA[city];
+  $("result").style.display = "block";
+  $("demoLine").innerHTML = d.fields.map(f =>
+    `<b>${fieldLabel(f)}:</b> ${sel[f]}`).join(" &nbsp;·&nbsp; ");
+  for (const id of ["personaBox", "reasonBox", "chainWrap", "actTable", "invalidWarn"])
+    $(id).style.display = "none";
+  $("rawTxt").textContent = ""; $("rawDetails").open = true;
+  try {
+    await ensureEngine();
+    renderControls();  // relabel button now that the model is resident
+    $("stopBtn").style.display = "";
+    const user = "Generate a daily trip chain for the following person.\n\n" +
+      d.fields.map(f => `- ${f}: ${sel[f]}`).join("\n");
+    const chunks = await engine.chat.completions.create({
+      messages: [{ role: "system", content: SYS[city] },
+                 { role: "user", content: user }],
+      temperature: 0.8, top_p: 0.92, max_tokens: 1200, stream: true,
+    });
+    let text = "";
+    for await (const ch of chunks) {
+      text += ch.choices[0]?.delta?.content ?? "";
+      $("rawTxt").textContent = text;
+    }
+    const parsed = parseGen(text, PLACE_KEY[city]);
+    if (parsed) {
+      $("personaTxt").textContent = parsed.persona;
+      $("reasonTxt").textContent = parsed.reasoning;
+      $("personaBox").style.display = ""; $("reasonBox").style.display = "";
+      $("chainWrap").style.display = ""; $("actTable").style.display = "";
+      renderTimeline(parsed.activities);
+      $("rawDetails").open = false;
+    } else {
+      $("invalidWarn").style.display = "";
+    }
+  } catch (e) {
+    $("loadbar").style.display = "block";
+    $("loadtxt").textContent = "Error: " + (e?.message || e);
+  } finally {
+    busy = false; renderControls();
+  }
+}
+function renderTimeline(acts) {
+  const tl = $("timeline"); tl.innerHTML = "";
+  const tip = $("tooltip");
+  const segs = [];
+  acts.forEach((a, i) => {
+    segs.push({ g: groupOf(a.type), a, from: a.start_min,
+                to: Math.min(1440, a.start_min + a.dur_min) });
+    if (i + 1 < acts.length) {
+      const end = a.start_min + a.dur_min, nxt = acts[i + 1].start_min;
+      if (nxt > end) segs.push({ g: "travel",
+        a: { type: "travel (" + (acts[i + 1].mode || "?") + ")", place: "", start_min: end,
+             dur_min: nxt - end, mode: acts[i + 1].mode }, from: end, to: nxt });
+    }
+  });
+  // survey convention: post-chain minutes are at home — pad the overnight tail
+  const last = acts[acts.length - 1], lastEnd = last.start_min + last.dur_min;
+  if (lastEnd < 1440 && groupOf(last.type) === "home")
+    segs.push({ g: "home", a: { type: "home (overnight)", place: last.place,
+      start_min: lastEnd, dur_min: 1440 - lastEnd, mode: "" }, from: lastEnd, to: 1440 });
+  for (const sg of segs) {
+    const el = document.createElement("div"); el.className = "seg";
+    el.style.left = (100 * sg.from / 1440) + "%";
+    el.style.width = Math.max(0.15, 100 * (sg.to - sg.from) / 1440) + "%";
+    el.style.background = colorOf(sg.g);
+    el.onmousemove = ev => { tip.style.display = "block";
+      tip.style.left = (ev.clientX + 12) + "px"; tip.style.top = (ev.clientY + 12) + "px";
+      tip.innerHTML = `<b>${sg.a.type}</b>${sg.a.place ? " @ " + sg.a.place : ""}<br>` +
+        `${clock(sg.from)}–${clock(sg.to)} (${sg.to - sg.from} min)`; };
+    el.onmouseleave = () => tip.style.display = "none";
+    tl.appendChild(el);
+  }
+  const ax = $("tlaxis"); ax.innerHTML = "";
+  for (const h of [3, 6, 9, 12, 15, 18, 21, 0, 3]) {
+    const m = ((h - 3 + 24) % 24) * 60 + (h === 3 && ax.childElementCount > 0 ? 1440 : 0);
+    const sp = document.createElement("span");
+    sp.style.left = (100 * m / 1440) + "%";
+    sp.textContent = String(h).padStart(2, "0") + ":00";
+    ax.appendChild(sp);
+  }
+  const lg = $("legend"); lg.innerHTML = "";
+  for (const [g, c] of GROUPS.map(x => [x[0], x[1]])) {
+    const sp = document.createElement("span");
+    sp.innerHTML = `<span class="sw" style="background:${c}"></span>${g}`;
+    lg.appendChild(sp);
+  }
+  const tb = $("actRows"); tb.innerHTML = "";
+  acts.forEach(a => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${clock(a.start_min)}</td><td>${a.type}</td>` +
+      `<td>${a.place || "—"}</td><td>${a.dur_min} min</td><td>${a.mode || "—"}</td>`;
+    tb.appendChild(tr);
+  });
+}
+boot();
+</script>
+</body>
+</html>
