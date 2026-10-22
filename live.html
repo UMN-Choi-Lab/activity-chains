@@ -3,12 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <title>Activity Chain Generator — live in-browser demo (WebGPU)</title>
-<meta name="description" content="Generate 24-hour activity chains live in your browser. A 1.5B language model distilled from large-model reasoning over real travel surveys runs entirely on your GPU via WebLLM — no server, nothing uploaded.">
+<meta name="description" content="Generate 24-hour activity chains live in your browser. A 2B language model distilled from large-model reasoning over real travel surveys runs entirely on your GPU via WebLLM — no server, nothing uploaded.">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="puma_msp.js"></script>
 <style>
   * { box-sizing:border-box; }
   body { font-family:-apple-system,"Segoe UI","Helvetica Neue",sans-serif;
@@ -45,6 +42,11 @@
   .loadbar .bar { height:8px; background:#eee; border-radius:4px; overflow:hidden;
                   margin-top:8px; }
   .loadbar .fill { height:100%; width:0%; background:#1f77b4; transition:width .3s; }
+  .override { margin:4px 0 14px; }
+  .override label { display:block; font-size:11px; color:#888; text-transform:uppercase; margin-bottom:4px; }
+  .override textarea { width:100%; box-sizing:border-box; font:14px/1.4 inherit; padding:6px 8px;
+    border:1px solid #ccc; border-radius:6px; }
+  .override .act { font-size:12px; padding:4px 10px; margin:0 6px 6px 0; }
   .box { border:2px solid; border-radius:8px; padding:12px 16px; margin-bottom:12px;
          font-size:14px; }
   .box .hd { font-size:11px; font-weight:700; text-transform:uppercase;
@@ -67,15 +69,8 @@
             margin-top:10px; }
   .legend .sw { display:inline-block; width:11px; height:11px; border-radius:3px;
                 margin-right:4px; vertical-align:-1px; }
-  #map { height:380px; border-radius:5px; }
-  .stopmk { display:flex; gap:2px; }
-  .stopmk b { display:inline-flex; align-items:center; justify-content:center; width:22px;
-              height:22px; border-radius:50%; border:2px solid #fff; color:#fff; font-size:11px;
-              box-shadow:0 0 3px rgba(0,0,0,.5); cursor:pointer; }
-  .stopmk b.hl { transform:scale(1.35); border-color:#222; }
   .tl .seg.hl { box-shadow:inset 0 0 0 3px #222; filter:brightness(1.15); }
   table.acts tr.hl td { background:#fff3c4; }
-  .map-note { font-size:12px; color:#888; margin-top:6px; }
   table.acts { width:100%; border-collapse:collapse; font-size:13px;
                background:#fff; border:1px solid #e5e5e5; border-radius:8px; }
   table.acts th, table.acts td { padding:6px 10px; text-align:left;
@@ -96,15 +91,15 @@
 <body>
 <a class="parent-link" href="./">&larr; back to the gallery</a>
 <h1>Activity Chain Generator — live</h1>
-<p class="tagline">The same 1.5B distilled student as the
+<p class="tagline">The same Qwen3.5-2B distilled student as the
 <a href="./">gallery</a>, running <b>entirely in your browser</b> on your GPU
 (<a href="https://github.com/mlc-ai/web-llm">WebLLM</a>, WebGPU, 4-bit). Pick demographics,
 generate a fresh <b>persona</b>, <b>reasoning trace</b>, and <b>24-hour activity chain</b> —
 no server, nothing you do here leaves your machine.</p>
 
-<div class="note" id="live-note-trc" style="background:#e8f1fb;border-color:#9dc1e4;color:#2a527a"><b>June 2026 build.</b> This page runs the earlier Qwen2.5-1.5B students for Minneapolis-St. Paul and Seoul in the browser via WebGPU, while <a href="./">the gallery</a> shows the Qwen3.5-2B students for all 4 regions. The 2B students are not yet compiled for the browser.</div>
+<div class="note" id="live-note-trc" style="background:#e8f1fb;border-color:#9dc1e4;color:#2a527a"><b>October 2026 build.</b> This page runs the Qwen3.5-2B Arm B student for Minneapolis-St. Paul in the browser via WebGPU, the same model as <a href="./">the gallery</a>. The other 3 regions are in the gallery only.</div>
 
-<div class="note"><b>What to expect.</b> The first load downloads ~1&nbsp;GB of model weights
+<div class="note"><b>What to expect.</b> The first load downloads ~1.1&nbsp;GB of model weights
 (cached by your browser afterwards). Outputs stream token by token and are shown unedited; a
 small model occasionally produces a schema-invalid day, which we flag instead of hiding.
 Requires WebGPU — Chrome or Edge 113+ on desktop (Safari 18+ and Firefox Nightly may work).</div>
@@ -113,6 +108,11 @@ You can still browse the <a href="./">precomputed gallery</a>, which needs no GP
 
 <div class="tabs" id="tabs"></div>
 <div class="controls" id="controls"></div>
+<div class="override">
+  <label for="ovr">Persona hint (optional): the model starts its persona with this and writes the rest itself</label>
+  <div id="presets"></div>
+  <textarea id="ovr" rows="3" placeholder="Leave empty for the normal demo. One or two sentences work best, e.g.: It is a Saturday, so this person does not go to work."></textarea>
+</div>
 <div class="loadbar" id="loadbar" style="display:none">
   <span id="loadtxt"></span>
   <div class="bar"><div class="fill" id="loadfill"></div></div>
@@ -122,7 +122,7 @@ You can still browse the <a href="./">precomputed gallery</a>, which needs no GP
   <div class="box input"><div class="hd">Input — demographics (the model sees only this)</div>
     <div id="demoLine"></div></div>
   <div class="box persona" id="personaBox" style="display:none">
-    <div class="hd">Generated persona (latent, inferred by the model)</div>
+    <div class="hd" id="personaHd">Generated persona (latent, inferred by the model)</div>
     <div id="personaTxt"></div></div>
   <div class="box reason" id="reasonBox" style="display:none">
     <div class="hd">Generated reasoning (chain-of-thought)</div>
@@ -134,18 +134,12 @@ You can still browse the <a href="./">precomputed gallery</a>, which needs no GP
     <div class="tl-axis" id="tlaxis"></div>
     <div class="legend" id="legend"></div>
   </div>
-  <div class="tl-wrap" id="mapWrap" style="display:none">
-    <div class="hd" style="font-size:11px;font-weight:700;color:#C0392B;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">
-      Where the day happens — stops by zone</div>
-    <div id="map"></div>
-    <div class="map-note" id="mapNote"></div>
-  </div>
   <table class="acts" id="actTable" style="display:none"><thead><tr>
     <th>Clock</th><th>Activity</th><th>Place</th><th>Duration</th><th>Arrives by</th>
   </tr></thead><tbody id="actRows"></tbody></table>
   <div class="warn" id="invalidWarn" style="display:none"><b>Schema-invalid generation.</b>
     This sample did not parse into a valid home-anchored day — that happens occasionally with a
-    1.5B model. The raw output is below; hit Generate to try again.</div>
+    2B model. The raw output is below; hit Generate to try again.</div>
   <div class="box raw"><details id="rawDetails"><summary>raw model output (streams live)</summary>
     <pre id="rawTxt"></pre></details></div>
 </div>
@@ -154,8 +148,8 @@ You can still browse the <a href="./">precomputed gallery</a>, which needs no GP
 <h2>How this differs from the gallery</h2>
 <div class="about">
 <p>The gallery shows precomputed generations from our lab GPU. This page runs the identical
-student model (Qwen2.5-1.5B + merged LoRA, one per city) in your browser, quantized to 4-bit
-(q4f16_1) and decoded at the same temperature 0.8 / top-p 0.92 used throughout the paper. The
+student model (Qwen3.5-2B + merged LoRA) in your browser, quantized to 4-bit
+(q4f16_1, GPTQ) and decoded at the same temperature 0.8 / top-p 0.92 used throughout the paper. The
 demographic vocabulary matches the training surveys, and the prompt sent to the model is exactly
 the training-time format — what you see is the deployment artifact, not a hosted API.</p>
 <p>Model weights are published at
@@ -164,25 +158,21 @@ research use). Survey microdata is never published; profiles you compose here ar
 construction.</p>
 </div>
 
-<footer>UMN Choi Lab &middot; Seongjin Choi &middot; surveys: Met Council TBI 2023, KTDB HTS 2021
+<footer>UMN Choi Lab &middot; Seongjin Choi &middot; survey: Met Council TBI 2023
 (microdata never published) &middot; outputs are synthetic and for research illustration only.</footer>
 
 <script type="module">
-import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.79";
+import * as webllm from "https://esm.run/@mlc-ai/web-llm@0.2.86";
 
-const CITY_LABEL = { mn: "Minneapolis–St. Paul", seoul: "Seoul" };
-const HF = {
-  mn:    "https://huggingface.co/UMN-Choi-Lab/PersonaTC-mn-Qwen2.5-1.5B-q4f16_1-MLC",
-  seoul: "https://huggingface.co/UMN-Choi-Lab/PersonaTC-seoul-Qwen2.5-1.5B-q4f16_1-MLC",
+const CITY_LABEL = { msp: "Minneapolis–St. Paul" };
+// Qwen3.5-2B Arm B student, GPTQ q4f16_1 (PersonaTC merged/_build_qwen35_2b.sh)
+const MODEL_URL = {
+  msp: "https://huggingface.co/UMN-Choi-Lab/PersonaTC-msp-Qwen3.5-2B-q4f16_1-MLC",
 };
 const SYS = {
-  mn: "You are an expert in Twin Cities (Minnesota) daily mobility patterns. Generate a realistic 24-hour trip chain (starting 03:00, ending 03:00 the next day) in JSON for the given person. The first and last activity must be home; each activity has activity_type, location_type, zone (a PUMA-level zone code), start_time_min (minutes from 03:00), duration_min (>= 5), and mode.\n\nFirst infer the person's persona and reasoning, then output the JSON trip chain. Wrap the inferred persona in <persona>...</persona>, the reasoning in <reasoning>...</reasoning>, then emit the JSON result.\n먼저 페르소나와 추론 과정을 서술한 뒤 JSON 결과를 출력하십시오.",
-  seoul: "You are an expert in Seoul (서울) daily mobility patterns. Generate a realistic 24-hour trip chain (starting 03:00, ending 03:00 the next day) in JSON for the given person. The first and last activity must be home; each activity has activity_type, location_type, district (Seoul 25-gu), start_time_min (minutes from 03:00), duration_min (>= 5), and mode.\n주어진 사람에 대해 현실적인 24시간 통행 체인을 JSON으로 생성하십시오.\n\nFirst infer the person's persona and reasoning, then output the JSON trip chain. Wrap the inferred persona in <persona>...</persona>, the reasoning in <reasoning>...</reasoning>, then emit the JSON result.\n먼저 페르소나와 추론 과정을 서술한 뒤 JSON 결과를 출력하십시오.",
+  msp: "You are an expert in Twin Cities (Minnesota) daily mobility patterns. Generate a realistic 24-hour trip chain (starting 03:00, ending 03:00 the next day) in JSON for the given person. The first and last activity must be home; each activity has activity_type, location_type, zone (a PUMA-level zone code), start_time_min (minutes from 03:00), duration_min (>= 5), and mode.\n\nFirst infer the person's persona and reasoning, then output the JSON trip chain. Wrap the inferred persona in <persona>...</persona>, the reasoning in <reasoning>...</reasoning>, then emit the JSON result.\n먼저 페르소나와 추론 과정을 서술한 뒤 JSON 결과를 출력하십시오.",
 };
-const PLACE_KEY = { mn: "zone", seoul: "district" };
-// MSP zones are 2020-vintage PUMA codes (TBI d_puma_2022). Internal points + names from the
-// Census TIGERweb 2020 PUMA layer (Minnesota, 48 PUMAs); the map places a stop only here.
-const MN_PUMA20 = {"101":[48.0565,-95.7872,"Northwest Minnesota"],"201":[47.5514,-94.0490,"North Central Minnesota"],"301":[47.6510,-91.6658,"Cook, Lake & St. Louis (North) Counties"],"401":[46.7850,-92.1621,"St. Louis County (Southeast)--Duluth, Hermantown & Proctor Cities"],"501":[46.4459,-93.0345,"Aitkin, Carlton, Kanabec, Pine & St. Louis (Southwest) Counties"],"600":[46.2480,-94.4636,"Crow Wing, Morrison, Todd & Wadena Counties"],"700":[46.5125,-96.0471,"Clay, Otter Tail & Wilkin Counties"],"800":[45.4047,-95.8798,"West Central Minnesota"],"901":[45.5788,-94.4838,"Benton (Northwest) & Stearns (West) Counties"],"1001":[45.5557,-94.0958,"Benton (Southwest), Sherburne (Northwest) & Stearns (East) Counties--St. Cloud City"],"1101":[45.4195,-93.7406,"Sherburne (East) & Wright (North) Counties"],"1200":[45.7091,-93.3379,"Chisago, Isanti & Mille Lacs Counties"],"1301":[45.3085,-93.2584,"Anoka County (North)--Andover, Ramsey, Ham Lake & East Bethel Cities"],"1302":[45.1478,-93.3026,"Anoka County (Southwest)--Coon Rapids, Fridley, Columbia Heights & Anoka Cities"],"1303":[45.1620,-93.1551,"Anoka County (Southeast)--Blaine & Lino Lakes Cities"],"1401":[45.1400,-92.8909,"Washington County (North)--Oakdale, Forest Lake, Stillwater & Hugo Cities"],"1402":[44.8572,-92.8911,"Washington County (South)--Woodbury & Cottage Grove Cities"],"1501":[45.0841,-93.1057,"Ramsey County (North)--Shoreview, White Bear Lake & New Brighton Cities"],"1502":[45.0018,-93.0820,"Ramsey County (Central & Far Southeast)--Maplewood, Roseville & North St. Paul Cities"],"1503":[44.9689,-93.1428,"Ramsey County--St. Paul City (Northwest)"],"1504":[44.9264,-93.1403,"Ramsey County--St. Paul City (Southwest)"],"1505":[44.9517,-93.0383,"Ramsey County--St. Paul City (East)"],"1601":[45.0528,-93.6132,"Hennepin County (West)--Champlin, Rogers Cities & Lake Minnetonka"],"1602":[45.0459,-93.4720,"Hennepin County--Plymouth, Maple Grove (West) & Medicine Lake Cities"],"1603":[45.1120,-93.3894,"Hennepin County--Brooklyn Park, Maple Grove (East) & Osseo Cities"],"1604":[45.0287,-93.3501,"Hennepin County--Brooklyn Center, Crystal, Golden Valley, New Hope & Robbinsdale"],"1605":[44.8882,-93.4590,"Hennepin County--Eden Prairie & Minnetonka Cities"],"1606":[44.9176,-93.3677,"Hennepin County--Edina, St. Louis Park & Hopkins Cities"],"1607":[44.8443,-93.2967,"Hennepin County--Bloomington & Richfield Cities"],"1608":[45.0149,-93.2669,"Hennepin County--Minneapolis (North) & St. Anthony Cities"],"1609":[44.9632,-93.2370,"Hennepin County--Minneapolis City (East)"],"1610":[44.9241,-93.2838,"Hennepin County--Minneapolis City (Southwest)"],"1611":[44.9457,-93.2646,"Hennepin County--Minneapolis City (Central)"],"1701":[44.8416,-93.1513,"Dakota County (Northwest)--Eagan, West St. Paul & Mendota Heights Cities"],"1702":[44.7285,-93.0135,"Dakota County (Northeast)--Inver Grove Heights, Rosemount, Hastings & South St. Paul"],"1703":[44.7554,-93.2523,"Dakota County (West)--Burnsville & Apple Valley Cities"],"1704":[44.6049,-93.0630,"Dakota County (South)--Lakeville & Farmington Cities"],"1800":[44.6518,-93.5337,"Scott County"],"1900":[44.8213,-93.8001,"Carver County"],"2001":[45.1643,-93.9738,"Wright (South) County"],"2100":[44.8900,-94.6677,"Kandiyohi, McLeod, Meeker, Renville & Sibley Counties"],"2200":[44.0447,-95.6742,"Southwest Minnesota"],"2300":[43.8196,-94.1879,"Brown, Martin, Faribault, Freeborn & Watonwan Counties"],"2400":[44.1548,-94.1478,"Blue Earth & Nicollet Counties--Mankato City"],"2500":[44.2018,-93.4644,"Le Sueur, Rice, Steele & Waseca Counties"],"2600":[44.2453,-92.2609,"Goodhue, Wabasha & Winona Counties"],"2700":[43.9996,-92.4104,"Olmsted County--Rochester City"],"2800":[43.7297,-92.2728,"Dodge, Fillmore, Houston & Mower Counties"]};
+const PLACE_KEY = { msp: "zone" };
 const GROUPS = [
   ["home",   "#5B8DB8", t => t.includes("home")],
   ["work",   "#C0392B", t => t.includes("work")],
@@ -198,7 +188,7 @@ const clock = m => { const c = (180 + ((m % 1440) + 1440)) % 1440;
   return String(Math.floor(c/60)).padStart(2,"0") + ":" + String(c%60).padStart(2,"0"); };
 const $ = id => document.getElementById(id);
 
-let DATA = {}, city = "mn", sel = {};
+let DATA = {}, city = "msp", sel = {};
 let engine = null, engineCity = null, busy = false;
 
 // ---- parser: JS port of scripts/61_build_demo_assets.py (same validation) ----
@@ -245,17 +235,38 @@ function parseGen(text, placeKey) {
 }
 
 // ---- UI ----
+// Off-distribution steering: the student was never trained on day-of-week, work arrangement or
+// visitors, so a hint opens the persona and the model writes the rest of it. Expect more invalid days.
+const PRESETS = {
+  "Weekend": "It is a Saturday, so this person does not go to work or school.",
+  "Remote worker": "This person works fully remotely from a home office and never commutes.",
+  "Retiree": "This person is retired and has a flexible daytime schedule.",
+  "Night shift": "This person works a night shift and sleeps during the day.",
+  "Tourist": "This person is visiting the Twin Cities as a tourist for the day, staying at a downtown Minneapolis hotel and sightseeing across the region.",
+};
+function renderPresets() {
+  const el = $("presets");
+  for (const [k, v] of Object.entries({ ...PRESETS, "Clear": "" })) {
+    const b = document.createElement("button"); b.className = "act ghost"; b.textContent = k;
+    b.onclick = () => { $("ovr").value = v; };
+    el.appendChild(b);
+  }
+}
 async function boot() {
+  renderPresets();
   if (!navigator.gpu) $("gpuwarn").style.display = "block";
-  for (const c of ["mn", "seoul"]) {
+  // WebGPU is exposed only in secure contexts (https or localhost)
+  if (!window.isSecureContext) $("gpuwarn").firstElementChild.textContent =
+    "WebGPU needs https or localhost; open this page via an SSH tunnel to localhost.";
+  for (const c of Object.keys(CITY_LABEL)) {
     try { DATA[c] = await (await fetch(`data/web_demo_${c}.json`)).json(); }
     catch (e) { DATA[c] = null; }
   }
-  renderTabs(); pickCity("mn");
+  renderTabs(); pickCity("msp");
 }
 function renderTabs() {
   const el = $("tabs"); el.innerHTML = "";
-  for (const c of ["mn", "seoul"]) {
+  for (const c of Object.keys(CITY_LABEL)) {
     if (!DATA[c]) continue;
     const b = document.createElement("div");
     b.className = "tab" + (c === city ? " active" : "");
@@ -287,7 +298,7 @@ function renderControls() {
     renderControls(); };
   el.appendChild(r);
   const g = document.createElement("button"); g.className = "act"; g.id = "genBtn";
-  g.textContent = engineCity === city ? "Generate" : "Load model (~1 GB) & generate";
+  g.textContent = engineCity === city ? "Generate" : "Load model (~1.1 GB) & generate";
   g.disabled = !navigator.gpu || busy;
   g.onclick = generate;
   el.appendChild(g);
@@ -299,10 +310,10 @@ function renderControls() {
 async function ensureEngine() {
   if (engine && engineCity === city) return;
   const ref = webllm.prebuiltAppConfig.model_list.find(
-    m => m.model_id === "Qwen2.5-1.5B-Instruct-q4f16_1-MLC");
-  if (!ref) throw new Error("WebLLM prebuilt Qwen2.5-1.5B entry not found");
-  const model_id = `personatc-${city}-1.5b-q4f16_1`;
-  const appConfig = { model_list: [{ ...ref, model: HF[city] + "/resolve/main/", model_id }] };
+    m => m.model_id === "Qwen3.5-2B-q4f16_1-MLC");
+  if (!ref) throw new Error("WebLLM prebuilt Qwen3.5-2B entry not found");
+  const model_id = `personatc-${city}-qwen3.5-2b-q4f16_1`;
+  const appConfig = { model_list: [{ ...ref, model: MODEL_URL[city], model_id }] };
   $("loadbar").style.display = "block";
   const cb = r => { $("loadtxt").textContent = r.text;
     $("loadfill").style.width = Math.round(100 * (r.progress || 0)) + "%"; };
@@ -319,7 +330,7 @@ async function generate() {
   $("result").style.display = "block";
   $("demoLine").innerHTML = d.fields.map(f =>
     `<b>${fieldLabel(f)}:</b> ${sel[f]}`).join(" &nbsp;·&nbsp; ");
-  for (const id of ["personaBox", "reasonBox", "chainWrap", "mapWrap", "actTable", "invalidWarn"])
+  for (const id of ["personaBox", "reasonBox", "chainWrap", "actTable", "invalidWarn"])
     $(id).style.display = "none";
   $("rawTxt").textContent = ""; $("rawDetails").open = true;
   try {
@@ -328,14 +339,28 @@ async function generate() {
     $("stopBtn").style.display = "";
     const user = "Generate a daily trip chain for the following person.\n\n" +
       d.fields.map(f => `- ${f}: ${sel[f]}`).join("\n");
-    const chunks = await engine.chat.completions.create({
-      messages: [{ role: "system", content: SYS[city] },
-                 { role: "user", content: user }],
-      temperature: 0.8, top_p: 0.92, max_tokens: 1200, stream: true,
-    });
-    let text = "";
+    const ovr = $("ovr").value.trim();
+    let text = "", chunks;
+    if (ovr) {
+      // Open the persona with the hint and leave it unclosed, so the model writes the rest of the
+      // persona, the reasoning and the chain. Template matches mlc-chat-config.json
+      // (enable_thinking=False prefix). A closed, fully forced persona was tried first and dropped.
+      text = `<persona>\n${ovr} `;
+      const prompt = `<|im_start|>system\n${SYS[city]}<|im_end|>\n<|im_start|>user\n${user}<|im_end|>\n` +
+        `<|im_start|>assistant\n<think>\n\n</think>\n\n` + text;
+      chunks = await engine.completions.create({
+        prompt, temperature: 0.8, top_p: 0.92, max_tokens: 1200, stream: true });
+    } else {
+      chunks = await engine.chat.completions.create({
+        messages: [{ role: "system", content: SYS[city] },
+                   { role: "user", content: user }],
+        temperature: 0.8, top_p: 0.92, max_tokens: 1200, stream: true,
+      });
+    }
+    $("personaHd").textContent = ovr ? "Generated persona (opened with your hint, written by the model)"
+                                     : "Generated persona (latent, inferred by the model)";
     for await (const ch of chunks) {
-      text += ch.choices[0]?.delta?.content ?? "";
+      text += (ovr ? ch.choices[0]?.text : ch.choices[0]?.delta?.content) ?? "";
       $("rawTxt").textContent = text;
     }
     const parsed = parseGen(text, PLACE_KEY[city]);
@@ -345,7 +370,6 @@ async function generate() {
       $("personaBox").style.display = ""; $("reasonBox").style.display = "";
       $("chainWrap").style.display = ""; $("actTable").style.display = "";
       renderTimeline(parsed.activities);
-      if (city === "mn") renderMap(parsed.activities);
       $("rawDetails").open = false;
     } else {
       $("invalidWarn").style.display = "";
@@ -385,7 +409,7 @@ function renderTimeline(acts) {
     if (sg.i !== undefined) el.dataset.stop = sg.i;
     el.onmousemove = ev => { tip.style.display = "block";
       tip.style.left = (ev.clientX + 12) + "px"; tip.style.top = (ev.clientY + 12) + "px";
-      tip.innerHTML = `<b>${sg.a.type}</b>${sg.a.place ? " @ " + sg.a.place : ""}<br>` +
+      tip.innerHTML = `<b>${sg.a.type}</b>${sg.a.place ? " @ " + placeName(sg.a.place) : ""}<br>` +
         `${clock(sg.from)}–${clock(sg.to)} (${sg.to - sg.from} min)`; };
     el.onmouseleave = () => tip.style.display = "none";
     tl.appendChild(el);
@@ -408,59 +432,14 @@ function renderTimeline(acts) {
   acts.forEach((a, i) => {
     const tr = document.createElement("tr"); tr.dataset.stop = i;
     tr.innerHTML = `<td>${clock(a.start_min)}</td><td>${a.type}</td>` +
-      `<td>${a.place || "—"}</td><td>${a.dur_min} min</td><td>${a.mode || "—"}</td>`;
+      `<td title="PUMA ${a.place}">${a.place ? placeName(a.place) : "—"}</td><td>${a.dur_min} min</td><td>${a.mode || "—"}</td>`;
     tb.appendChild(tr);
   });
 }
-// ---- map (MSP only): one marker per zone, a numbered badge per stop, path in stop order ----
-let map = null, mapLayer = null, stopLatLng = [];
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-function renderMap(acts) {
-  $("mapWrap").style.display = "";
-  if (!map) {
-    map = L.map("map", { scrollWheelZoom: false });
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(map);
-  }
-  if (mapLayer) mapLayer.remove();
-  mapLayer = L.layerGroup().addTo(map);
-  const zones = new Map(), path = [], bad = [];
-  stopLatLng = acts.map((a, i) => {
-    const code = String(parseInt(a.place, 10)), p = MN_PUMA20[code];
-    if (!p) { bad.push(`stop ${i + 1} (zone ${esc(a.place || "?")})`); return null; }
-    if (!zones.has(code)) zones.set(code, { p, stops: [] });
-    zones.get(code).stops.push(i);
-    const ll = [p[0], p[1]], prev = path[path.length - 1];
-    if (!prev || prev[0] !== ll[0] || prev[1] !== ll[1]) path.push(ll);
-    return ll;
-  });
-  if (path.length > 1) L.polyline(path, { color: "#444", weight: 2.5, dashArray: "6 5" }).addTo(mapLayer);
-  for (const [code, z] of zones) {
-    const html = '<div class="stopmk">' + z.stops.map(i =>
-      `<b data-stop="${i}" style="background:${colorOf(groupOf(acts[i].type))}">${i + 1}</b>`).join("") + "</div>";
-    L.marker([z.p[0], z.p[1]], { icon: L.divIcon({ className: "", html,
-        iconSize: [26 * z.stops.length, 26], iconAnchor: [13 * z.stops.length, 13] }) })
-      .bindTooltip(`<b>PUMA ${code}</b> — ${esc(z.p[2])}<br>` + z.stops.map(i =>
-        `${i + 1}. ${esc(acts[i].type)} ${clock(acts[i].start_min)}`).join("<br>"), { direction: "top", offset: [0, -12] })
-      .addTo(mapLayer);
-  }
-  map.invalidateSize();
-  if (path.length > 1) map.fitBounds(path, { padding: [30, 30], maxZoom: 12 });
-  else if (path.length === 1) map.setView(path[0], 11);
-  else map.setView([44.97, -93.26], 9);
-  $("mapNote").innerHTML = "Numbers are stop order, colours the activity type. The model outputs only a " +
-    "PUMA zone code (an area of ~100k residents), so each marker sits at that PUMA's Census 2020 " +
-    "internal point, not at an address. Hover a stop, timeline bar or table row to link them." +
-    (bad.length ? `<br><b>Not placed:</b> ${bad.join(", ")} — not a 2020 Minnesota PUMA code.` : "");
-}
-// hover links timeline bars, table rows and map badges that share a stop index
+// hover links timeline bars and table rows that share a stop index
 const hl = (i, on) => document.querySelectorAll(`[data-stop="${i}"]`).forEach(e => e.classList.toggle("hl", on));
 for (const [ev, on] of [["mouseover", true], ["mouseout", false]])
   document.addEventListener(ev, e => { const t = e.target.closest?.("[data-stop]"); if (t) hl(t.dataset.stop, on); });
-document.addEventListener("click", e => {
-  const t = e.target.closest?.("#timeline [data-stop], #actRows [data-stop]");
-  if (t && map && $("mapWrap").style.display === "" && stopLatLng[t.dataset.stop]) map.panTo(stopLatLng[t.dataset.stop]);
-});
 boot();
 </script>
 </body>

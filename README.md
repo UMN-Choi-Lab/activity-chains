@@ -11,7 +11,7 @@
 
 Profiles are synthetic grids, with no real respondent record or observed day. Generation uses 3 samples per profile, temperature 0.8, top-p 0.92. Schema-invalid generations are dropped; nothing else is filtered.
 
-`live.html` retains the June 2026 in-browser WebGPU build with earlier Qwen2.5-1.5B students for Minneapolis-St. Paul and Seoul, with a note. The 2B students have no browser build yet.
+`live.html` runs the Qwen3.5-2B Arm B student for Minneapolis-St. Paul in the browser (WebLLM 0.2.86, WebGPU; merged, GPTQ q4f16_1 weights at [UMN-Choi-Lab/PersonaTC-msp-Qwen3.5-2B-q4f16_1-MLC](https://huggingface.co/UMN-Choi-Lab/PersonaTC-msp-Qwen3.5-2B-q4f16_1-MLC)). An optional persona hint opens the persona the model writes (weekend, remote worker, tourist, ...); this is off the training distribution. MSP places are shown as Census 2020 PUMA names (`puma_msp.js`).
 
 Gallery data (`data/web_demo_{msp,england,netherlands,melbourne}.json`) comes from `scripts/demo/` in the private persona-rationale lab repo. Adapters are in [private UMN-Choi-Lab repositories](https://huggingface.co/UMN-Choi-Lab).
 
