@@ -5,6 +5,10 @@
 <title>Activity Chain Generator — live in-browser demo (WebGPU)</title>
 <meta name="description" content="Generate 24-hour activity chains live in your browser. A 1.5B language model distilled from large-model reasoning over real travel surveys runs entirely on your GPU via WebLLM — no server, nothing uploaded.">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <style>
   * { box-sizing:border-box; }
   body { font-family:-apple-system,"Segoe UI","Helvetica Neue",sans-serif;
@@ -63,6 +67,15 @@
             margin-top:10px; }
   .legend .sw { display:inline-block; width:11px; height:11px; border-radius:3px;
                 margin-right:4px; vertical-align:-1px; }
+  #map { height:380px; border-radius:5px; }
+  .stopmk { display:flex; gap:2px; }
+  .stopmk b { display:inline-flex; align-items:center; justify-content:center; width:22px;
+              height:22px; border-radius:50%; border:2px solid #fff; color:#fff; font-size:11px;
+              box-shadow:0 0 3px rgba(0,0,0,.5); cursor:pointer; }
+  .stopmk b.hl { transform:scale(1.35); border-color:#222; }
+  .tl .seg.hl { box-shadow:inset 0 0 0 3px #222; filter:brightness(1.15); }
+  table.acts tr.hl td { background:#fff3c4; }
+  .map-note { font-size:12px; color:#888; margin-top:6px; }
   table.acts { width:100%; border-collapse:collapse; font-size:13px;
                background:#fff; border:1px solid #e5e5e5; border-radius:8px; }
   table.acts th, table.acts td { padding:6px 10px; text-align:left;
@@ -121,6 +134,12 @@ You can still browse the <a href="./">precomputed gallery</a>, which needs no GP
     <div class="tl-axis" id="tlaxis"></div>
     <div class="legend" id="legend"></div>
   </div>
+  <div class="tl-wrap" id="mapWrap" style="display:none">
+    <div class="hd" style="font-size:11px;font-weight:700;color:#C0392B;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px">
+      Where the day happens — stops by zone</div>
+    <div id="map"></div>
+    <div class="map-note" id="mapNote"></div>
+  </div>
   <table class="acts" id="actTable" style="display:none"><thead><tr>
     <th>Clock</th><th>Activity</th><th>Place</th><th>Duration</th><th>Arrives by</th>
   </tr></thead><tbody id="actRows"></tbody></table>
@@ -161,6 +180,9 @@ const SYS = {
   seoul: "You are an expert in Seoul (서울) daily mobility patterns. Generate a realistic 24-hour trip chain (starting 03:00, ending 03:00 the next day) in JSON for the given person. The first and last activity must be home; each activity has activity_type, location_type, district (Seoul 25-gu), start_time_min (minutes from 03:00), duration_min (>= 5), and mode.\n주어진 사람에 대해 현실적인 24시간 통행 체인을 JSON으로 생성하십시오.\n\nFirst infer the person's persona and reasoning, then output the JSON trip chain. Wrap the inferred persona in <persona>...</persona>, the reasoning in <reasoning>...</reasoning>, then emit the JSON result.\n먼저 페르소나와 추론 과정을 서술한 뒤 JSON 결과를 출력하십시오.",
 };
 const PLACE_KEY = { mn: "zone", seoul: "district" };
+// MSP zones are 2020-vintage PUMA codes (TBI d_puma_2022). Internal points + names from the
+// Census TIGERweb 2020 PUMA layer (Minnesota, 48 PUMAs); the map places a stop only here.
+const MN_PUMA20 = {"101":[48.0565,-95.7872,"Northwest Minnesota"],"201":[47.5514,-94.0490,"North Central Minnesota"],"301":[47.6510,-91.6658,"Cook, Lake & St. Louis (North) Counties"],"401":[46.7850,-92.1621,"St. Louis County (Southeast)--Duluth, Hermantown & Proctor Cities"],"501":[46.4459,-93.0345,"Aitkin, Carlton, Kanabec, Pine & St. Louis (Southwest) Counties"],"600":[46.2480,-94.4636,"Crow Wing, Morrison, Todd & Wadena Counties"],"700":[46.5125,-96.0471,"Clay, Otter Tail & Wilkin Counties"],"800":[45.4047,-95.8798,"West Central Minnesota"],"901":[45.5788,-94.4838,"Benton (Northwest) & Stearns (West) Counties"],"1001":[45.5557,-94.0958,"Benton (Southwest), Sherburne (Northwest) & Stearns (East) Counties--St. Cloud City"],"1101":[45.4195,-93.7406,"Sherburne (East) & Wright (North) Counties"],"1200":[45.7091,-93.3379,"Chisago, Isanti & Mille Lacs Counties"],"1301":[45.3085,-93.2584,"Anoka County (North)--Andover, Ramsey, Ham Lake & East Bethel Cities"],"1302":[45.1478,-93.3026,"Anoka County (Southwest)--Coon Rapids, Fridley, Columbia Heights & Anoka Cities"],"1303":[45.1620,-93.1551,"Anoka County (Southeast)--Blaine & Lino Lakes Cities"],"1401":[45.1400,-92.8909,"Washington County (North)--Oakdale, Forest Lake, Stillwater & Hugo Cities"],"1402":[44.8572,-92.8911,"Washington County (South)--Woodbury & Cottage Grove Cities"],"1501":[45.0841,-93.1057,"Ramsey County (North)--Shoreview, White Bear Lake & New Brighton Cities"],"1502":[45.0018,-93.0820,"Ramsey County (Central & Far Southeast)--Maplewood, Roseville & North St. Paul Cities"],"1503":[44.9689,-93.1428,"Ramsey County--St. Paul City (Northwest)"],"1504":[44.9264,-93.1403,"Ramsey County--St. Paul City (Southwest)"],"1505":[44.9517,-93.0383,"Ramsey County--St. Paul City (East)"],"1601":[45.0528,-93.6132,"Hennepin County (West)--Champlin, Rogers Cities & Lake Minnetonka"],"1602":[45.0459,-93.4720,"Hennepin County--Plymouth, Maple Grove (West) & Medicine Lake Cities"],"1603":[45.1120,-93.3894,"Hennepin County--Brooklyn Park, Maple Grove (East) & Osseo Cities"],"1604":[45.0287,-93.3501,"Hennepin County--Brooklyn Center, Crystal, Golden Valley, New Hope & Robbinsdale"],"1605":[44.8882,-93.4590,"Hennepin County--Eden Prairie & Minnetonka Cities"],"1606":[44.9176,-93.3677,"Hennepin County--Edina, St. Louis Park & Hopkins Cities"],"1607":[44.8443,-93.2967,"Hennepin County--Bloomington & Richfield Cities"],"1608":[45.0149,-93.2669,"Hennepin County--Minneapolis (North) & St. Anthony Cities"],"1609":[44.9632,-93.2370,"Hennepin County--Minneapolis City (East)"],"1610":[44.9241,-93.2838,"Hennepin County--Minneapolis City (Southwest)"],"1611":[44.9457,-93.2646,"Hennepin County--Minneapolis City (Central)"],"1701":[44.8416,-93.1513,"Dakota County (Northwest)--Eagan, West St. Paul & Mendota Heights Cities"],"1702":[44.7285,-93.0135,"Dakota County (Northeast)--Inver Grove Heights, Rosemount, Hastings & South St. Paul"],"1703":[44.7554,-93.2523,"Dakota County (West)--Burnsville & Apple Valley Cities"],"1704":[44.6049,-93.0630,"Dakota County (South)--Lakeville & Farmington Cities"],"1800":[44.6518,-93.5337,"Scott County"],"1900":[44.8213,-93.8001,"Carver County"],"2001":[45.1643,-93.9738,"Wright (South) County"],"2100":[44.8900,-94.6677,"Kandiyohi, McLeod, Meeker, Renville & Sibley Counties"],"2200":[44.0447,-95.6742,"Southwest Minnesota"],"2300":[43.8196,-94.1879,"Brown, Martin, Faribault, Freeborn & Watonwan Counties"],"2400":[44.1548,-94.1478,"Blue Earth & Nicollet Counties--Mankato City"],"2500":[44.2018,-93.4644,"Le Sueur, Rice, Steele & Waseca Counties"],"2600":[44.2453,-92.2609,"Goodhue, Wabasha & Winona Counties"],"2700":[43.9996,-92.4104,"Olmsted County--Rochester City"],"2800":[43.7297,-92.2728,"Dodge, Fillmore, Houston & Mower Counties"]};
 const GROUPS = [
   ["home",   "#5B8DB8", t => t.includes("home")],
   ["work",   "#C0392B", t => t.includes("work")],
@@ -297,7 +319,7 @@ async function generate() {
   $("result").style.display = "block";
   $("demoLine").innerHTML = d.fields.map(f =>
     `<b>${fieldLabel(f)}:</b> ${sel[f]}`).join(" &nbsp;·&nbsp; ");
-  for (const id of ["personaBox", "reasonBox", "chainWrap", "actTable", "invalidWarn"])
+  for (const id of ["personaBox", "reasonBox", "chainWrap", "mapWrap", "actTable", "invalidWarn"])
     $(id).style.display = "none";
   $("rawTxt").textContent = ""; $("rawDetails").open = true;
   try {
@@ -323,6 +345,7 @@ async function generate() {
       $("personaBox").style.display = ""; $("reasonBox").style.display = "";
       $("chainWrap").style.display = ""; $("actTable").style.display = "";
       renderTimeline(parsed.activities);
+      if (city === "mn") renderMap(parsed.activities);
       $("rawDetails").open = false;
     } else {
       $("invalidWarn").style.display = "";
@@ -339,7 +362,7 @@ function renderTimeline(acts) {
   const tip = $("tooltip");
   const segs = [];
   acts.forEach((a, i) => {
-    segs.push({ g: groupOf(a.type), a, from: a.start_min,
+    segs.push({ g: groupOf(a.type), a, i, from: a.start_min,
                 to: Math.min(1440, a.start_min + a.dur_min) });
     if (i + 1 < acts.length) {
       const end = a.start_min + a.dur_min, nxt = acts[i + 1].start_min;
@@ -352,12 +375,14 @@ function renderTimeline(acts) {
   const last = acts[acts.length - 1], lastEnd = last.start_min + last.dur_min;
   if (lastEnd < 1440 && groupOf(last.type) === "home")
     segs.push({ g: "home", a: { type: "home (overnight)", place: last.place,
-      start_min: lastEnd, dur_min: 1440 - lastEnd, mode: "" }, from: lastEnd, to: 1440 });
+      start_min: lastEnd, dur_min: 1440 - lastEnd, mode: "" }, i: acts.length - 1,
+      from: lastEnd, to: 1440 });
   for (const sg of segs) {
     const el = document.createElement("div"); el.className = "seg";
     el.style.left = (100 * sg.from / 1440) + "%";
     el.style.width = Math.max(0.15, 100 * (sg.to - sg.from) / 1440) + "%";
     el.style.background = colorOf(sg.g);
+    if (sg.i !== undefined) el.dataset.stop = sg.i;
     el.onmousemove = ev => { tip.style.display = "block";
       tip.style.left = (ev.clientX + 12) + "px"; tip.style.top = (ev.clientY + 12) + "px";
       tip.innerHTML = `<b>${sg.a.type}</b>${sg.a.place ? " @ " + sg.a.place : ""}<br>` +
@@ -380,13 +405,62 @@ function renderTimeline(acts) {
     lg.appendChild(sp);
   }
   const tb = $("actRows"); tb.innerHTML = "";
-  acts.forEach(a => {
-    const tr = document.createElement("tr");
+  acts.forEach((a, i) => {
+    const tr = document.createElement("tr"); tr.dataset.stop = i;
     tr.innerHTML = `<td>${clock(a.start_min)}</td><td>${a.type}</td>` +
       `<td>${a.place || "—"}</td><td>${a.dur_min} min</td><td>${a.mode || "—"}</td>`;
     tb.appendChild(tr);
   });
 }
+// ---- map (MSP only): one marker per zone, a numbered badge per stop, path in stop order ----
+let map = null, mapLayer = null, stopLatLng = [];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function renderMap(acts) {
+  $("mapWrap").style.display = "";
+  if (!map) {
+    map = L.map("map", { scrollWheelZoom: false });
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }).addTo(map);
+  }
+  if (mapLayer) mapLayer.remove();
+  mapLayer = L.layerGroup().addTo(map);
+  const zones = new Map(), path = [], bad = [];
+  stopLatLng = acts.map((a, i) => {
+    const code = String(parseInt(a.place, 10)), p = MN_PUMA20[code];
+    if (!p) { bad.push(`stop ${i + 1} (zone ${esc(a.place || "?")})`); return null; }
+    if (!zones.has(code)) zones.set(code, { p, stops: [] });
+    zones.get(code).stops.push(i);
+    const ll = [p[0], p[1]], prev = path[path.length - 1];
+    if (!prev || prev[0] !== ll[0] || prev[1] !== ll[1]) path.push(ll);
+    return ll;
+  });
+  if (path.length > 1) L.polyline(path, { color: "#444", weight: 2.5, dashArray: "6 5" }).addTo(mapLayer);
+  for (const [code, z] of zones) {
+    const html = '<div class="stopmk">' + z.stops.map(i =>
+      `<b data-stop="${i}" style="background:${colorOf(groupOf(acts[i].type))}">${i + 1}</b>`).join("") + "</div>";
+    L.marker([z.p[0], z.p[1]], { icon: L.divIcon({ className: "", html,
+        iconSize: [26 * z.stops.length, 26], iconAnchor: [13 * z.stops.length, 13] }) })
+      .bindTooltip(`<b>PUMA ${code}</b> — ${esc(z.p[2])}<br>` + z.stops.map(i =>
+        `${i + 1}. ${esc(acts[i].type)} ${clock(acts[i].start_min)}`).join("<br>"), { direction: "top", offset: [0, -12] })
+      .addTo(mapLayer);
+  }
+  map.invalidateSize();
+  if (path.length > 1) map.fitBounds(path, { padding: [30, 30], maxZoom: 12 });
+  else if (path.length === 1) map.setView(path[0], 11);
+  else map.setView([44.97, -93.26], 9);
+  $("mapNote").innerHTML = "Numbers are stop order, colours the activity type. The model outputs only a " +
+    "PUMA zone code (an area of ~100k residents), so each marker sits at that PUMA's Census 2020 " +
+    "internal point, not at an address. Hover a stop, timeline bar or table row to link them." +
+    (bad.length ? `<br><b>Not placed:</b> ${bad.join(", ")} — not a 2020 Minnesota PUMA code.` : "");
+}
+// hover links timeline bars, table rows and map badges that share a stop index
+const hl = (i, on) => document.querySelectorAll(`[data-stop="${i}"]`).forEach(e => e.classList.toggle("hl", on));
+for (const [ev, on] of [["mouseover", true], ["mouseout", false]])
+  document.addEventListener(ev, e => { const t = e.target.closest?.("[data-stop]"); if (t) hl(t.dataset.stop, on); });
+document.addEventListener("click", e => {
+  const t = e.target.closest?.("#timeline [data-stop], #actRows [data-stop]");
+  if (t && map && $("mapWrap").style.display === "" && stopLatLng[t.dataset.stop]) map.panTo(stopLatLng[t.dataset.stop]);
+});
 boot();
 </script>
 </body>
